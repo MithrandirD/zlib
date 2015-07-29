@@ -85,7 +85,7 @@ static void putShortMSB(deflate_state *s, uint32_t b);
 static void flush_pending(z_streamp strm);
 static int read_buf(z_streamp strm, uint8_t  *buf, uint32_t  size);
 
-#ifdef DEBUG
+#ifdef ZLIB_DEBUG
 static  void check_match(deflate_state *s, IPos start, IPos match,
                             int length);
 #endif
@@ -1246,7 +1246,7 @@ static uint32_t longest_match(s, cur_match)
     return s->lookahead;
 }
 
-#ifdef DEBUG
+#ifdef ZLIB_DEBUG
 /* ===========================================================================
  * Check that the match at match_start is indeed a match.
  */
@@ -1272,7 +1272,7 @@ static void check_match(s, start, match, length)
 }
 #else
 #  define check_match(s, start, match, length)
-#endif /* DEBUG */
+#endif /* ZLIB_DEBUG */
 
 /* ===========================================================================
  * Fill the window when the lookahead becomes insufficient.

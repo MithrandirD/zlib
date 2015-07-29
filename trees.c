@@ -36,7 +36,7 @@
 
 #include "deflate.h"
 
-#ifdef DEBUG
+#ifdef ZLIB_DEBUG
 #  include <ctype.h>
 #endif
 
@@ -159,11 +159,11 @@ static void copy_block     (deflate_state *s, uint8_t *buf, unsigned len,
 static void gen_trees_header OF(void);
 #endif
 
-#ifndef DEBUG
+#ifndef ZLIB_DEBUG
 #  define send_code(s, c, tree) send_bits(s, tree[c].Code, tree[c].Len)
    /* Send a code of the given tree. c and tree must not have side effects */
 
-#else /* DEBUG */
+#else /* !ZLIB_DEBUG */
 #  define send_code(s, c, tree) \
      { if (z_verbose>2) fprintf(stderr,"\ncd %3d ",(c)); \
        send_bits(s, tree[c].Code, tree[c].Len); }
@@ -174,10 +174,9 @@ static void gen_trees_header OF(void);
  * IN assertion: length <= 64 and value fits in length bits.
  */
 
-
 static void send_bits(deflate_state* s, uint64_t val, int len) {
 
-#ifdef DEBUG
+#ifdef ZLIB_DEBUG
     Tracevv((stderr," l %2d v %4llx ", len, val));
     Assert(len > 0 && len <= 64, "invalid length");
     s->bits_sent += len;
@@ -284,7 +283,7 @@ static void tr_static_init()
  * Genererate the file trees.h describing the static trees.
  */
 #ifdef GEN_TREES_H
-#  ifndef DEBUG
+#  ifndef ZLIB_DEBUG
 #    include <stdio.h>
 #  endif
 
@@ -361,7 +360,7 @@ void ZLIB_INTERNAL _tr_init(s)
 
     s->bi_buf = 0;
     s->bi_valid = 0;
-#ifdef DEBUG
+#ifdef ZLIB_DEBUG
     s->compressed_len = 0L;
     s->bits_sent = 0L;
 #endif
@@ -836,7 +835,7 @@ void ZLIB_INTERNAL _tr_stored_block(s, buf, stored_len, last)
     int last;         /* one if this is the last block for a file */
 {
     send_bits(s, (STORED_BLOCK<<1)+last, 3);    /* send block type */
-#ifdef DEBUG
+#ifdef ZLIB_DEBUG
     s->compressed_len = (s->compressed_len + 3 + 7) & (uint64_t)~7L;
     s->compressed_len += (stored_len + 4) << 3;
 #endif
@@ -861,7 +860,7 @@ void ZLIB_INTERNAL _tr_align(s)
 {
     send_bits(s, STATIC_TREES<<1, 3);
     send_code(s, END_BLOCK, static_ltree);
-#ifdef DEBUG
+#ifdef ZLIB_DEBUG
     s->compressed_len += 10L; /* 3 for block type, 7 for EOB */
 #endif
     bi_flush(s);
@@ -941,7 +940,7 @@ void ZLIB_INTERNAL _tr_flush_block(s, buf, stored_len, last)
         send_bits(s, (STATIC_TREES<<1)+last, 3);
         compress_block(s, (const ct_data *)static_ltree,
                        (const ct_data *)static_dtree);
-#ifdef DEBUG
+#ifdef ZLIB_DEBUG
         s->compressed_len += 3 + s->static_len;
 #endif
     } else {
@@ -950,7 +949,7 @@ void ZLIB_INTERNAL _tr_flush_block(s, buf, stored_len, last)
                        max_blindex+1);
         compress_block(s, (const ct_data *)s->dyn_ltree,
                        (const ct_data *)s->dyn_dtree);
-#ifdef DEBUG
+#ifdef ZLIB_DEBUG
         s->compressed_len += 3 + s->opt_len;
 #endif
     }
@@ -959,7 +958,7 @@ void ZLIB_INTERNAL _tr_flush_block(s, buf, stored_len, last)
 
     if (last) {
         bi_windup(s);
-#ifdef DEBUG
+#ifdef ZLIB_DEBUG
         s->compressed_len += 7;  /* align on byte boundary */
 #endif
     }
@@ -1044,7 +1043,7 @@ static void compress_block(s, ltree, dtree)
         if (dist == 0) {
             uint64_t val = ltree[lc].Code;
             int len = ltree[lc].Len;
-#ifdef DEBUG
+#ifdef ZIB_DEBUG
             Tracevv((stderr," l %2d v %4llx ", len, val));
             Assert(len > 0 && len <= 64, "invalid length");
             s->bits_sent += len;
@@ -1068,7 +1067,7 @@ static void compress_block(s, ltree, dtree)
 
             val = ltree[code+LITERALS+1].Code;
             len = ltree[code+LITERALS+1].Len;
-#ifdef DEBUG
+#ifdef ZIB_DEBUG
             Tracevv((stderr," l %2d v %4llx ", len, val));
             Assert(len > 0 && len <= 64, "invalid length");
             s->bits_sent += len;
@@ -1087,7 +1086,7 @@ static void compress_block(s, ltree, dtree)
                 lc -= base_length[code];
                 val = lc;
                 len = extra;
-#ifdef DEBUG
+#ifdef ZIB_DEBUG
                 Tracevv((stderr," l %2d v %4llx ", len, val));
                 Assert(len > 0 && len <= 64, "invalid length");
                 s->bits_sent += len;
@@ -1107,7 +1106,7 @@ static void compress_block(s, ltree, dtree)
             Assert (code < D_CODES, "bad d_code");
             val = dtree[code].Code;
             len = dtree[code].Len;
-#ifdef DEBUG
+#ifdef ZIB_DEBUG
             Tracevv((stderr," l %2d v %4llx ", len, val));
             Assert(len > 0 && len <= 64, "invalid length");
             s->bits_sent += len;
@@ -1129,7 +1128,7 @@ static void compress_block(s, ltree, dtree)
                 len = extra;
                 bit_buf ^= (val << filled);
                 filled += len;
-#ifdef DEBUG
+#ifdef ZIB_DEBUG
                 Tracevv((stderr," l %2d v %4llx ", len, val));
                 Assert(len > 0 && len <= 64, "invalid length");
                 s->bits_sent += len;
@@ -1151,7 +1150,7 @@ static void compress_block(s, ltree, dtree)
     val = ltree[END_BLOCK].Code;
     len = ltree[END_BLOCK].Len;
 
-#ifdef DEBUG
+#ifdef ZIB_DEBUG
     Tracevv((stderr," l %2d v %4llx ", len, val));
     Assert(len > 0 && len <= 64, "invalid length");
     s->bits_sent += len;
@@ -1265,7 +1264,7 @@ static void bi_windup(s)
     }
     s->bi_buf = 0;
     s->bi_valid = 0;
-#ifdef DEBUG
+#ifdef ZLIB_DEBUG
     s->bits_sent = (s->bits_sent+7) & ~7;
 #endif
 }
@@ -1285,11 +1284,11 @@ static void copy_block(s, buf, len, header)
     if (header) {
         put_short(s, (uint16_t)len);
         put_short(s, (uint16_t)~len);
-#ifdef DEBUG
+#ifdef ZLIB_DEBUG
         s->bits_sent += 2*16;
 #endif
     }
-#ifdef DEBUG
+#ifdef ZLIB_DEBUG
     s->bits_sent += (ulg)len<<3;
 #endif
     while (len--) {
