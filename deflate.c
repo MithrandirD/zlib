@@ -83,7 +83,7 @@ static block_state deflate_huff(deflate_state *s, int flush);
 static void lm_init(deflate_state *s);
 static void putShortMSB(deflate_state *s, uint32_t b);
 static void flush_pending(z_streamp strm);
-static int read_buf(z_streamp strm, uint8_t  *buf, uint32_t  size);
+static uint32_t read_buf(z_streamp strm, uint8_t  *buf, uint32_t  size);
 
 #ifdef ZLIB_DEBUG
 static  void check_match(deflate_state *s, IPos start, IPos match,
@@ -260,11 +260,11 @@ int ZEXPORT deflateInit2_(strm, level, method, windowBits, memLevel, strategy,
 
     s->wrap = wrap;
     s->gzhead = Z_NULL;
-    s->w_bits = windowBits;
+    s->w_bits = (uInt)windowBits;
     s->w_size = 1 << s->w_bits;
     s->w_mask = s->w_size - 1;
 
-    s->hash_bits = memLevel + 7;
+    s->hash_bits = (uInt)memLevel + 7;
     s->hash_size = 1 << s->hash_bits;
     s->hash_mask = s->hash_size - 1;
 
@@ -503,10 +503,10 @@ int ZEXPORT deflateTune(strm, good_length, max_lazy, nice_length, max_chain)
 
     if (strm == Z_NULL || strm->state == Z_NULL) return Z_STREAM_ERROR;
     s = strm->state;
-    s->good_match = good_length;
-    s->max_lazy_match = max_lazy;
+    s->good_match = (uInt)good_length;
+    s->max_lazy_match = (uInt)max_lazy;
     s->nice_match = nice_length;
-    s->max_chain_length = max_chain;
+    s->max_chain_length = (uInt)max_chain;
     return Z_OK;
 }
 
@@ -1027,7 +1027,7 @@ int ZEXPORT deflateCopy (dest, source)
  * allocating a large strm->next_in buffer and copying from it.
  * (See also flush_pending()).
  */
-static int read_buf(strm, buf, size)
+static uint32_t read_buf(strm, buf, size)
     z_streamp strm;
     uint8_t  *buf;
     uint32_t  size;
@@ -1049,7 +1049,7 @@ static int read_buf(strm, buf, size)
     strm->next_in  += len;
     strm->total_in += len;
 
-    return (int)len;
+    return len;
 }
 
 /* ===========================================================================
@@ -1149,7 +1149,7 @@ static uint32_t longest_match(s, cur_match)
     register uint8_t *scan = s->window + s->strstart; /* current string */
     register uint8_t *match;                          /* matched string */
     register int len;                                 /* length of current match */
-    int best_len = s->prev_length;                    /* best match length so far */
+    int best_len = (uint32_t)s->prev_length;          /* best match length so far */
     int nice_match = s->nice_match;                   /* stop if match long enough */
     IPos limit = s->strstart > (IPos)MAX_DIST(s) ?
         s->strstart - (IPos)MAX_DIST(s) : NIL;
@@ -1176,7 +1176,7 @@ static uint32_t longest_match(s, cur_match)
     /* Do not look for matches beyond the end of the input. This is necessary
      * to make deflate deterministic.
      */
-    if ((uint32_t)nice_match > s->lookahead) nice_match = s->lookahead;
+    if ((uint32_t)nice_match > s->lookahead) nice_match = (uint32_t)s->lookahead;
 
     Assert((uint64_t)s->strstart <= s->window_size-MIN_LOOKAHEAD, "need lookahead");
 
@@ -1490,7 +1490,7 @@ static block_state deflate_stored(s, flush)
         s->lookahead = 0;
 
         /* Emit a stored block if pending_buf will be full: */
-        max_start = s->block_start + max_block_size;
+        max_start = max_block_size + (ulg)s->block_start;
         if (s->strstart == 0 || (uint64_t)s->strstart >= max_start) {
             /* strstart == 0 is possible when wraparound on 16-bit machine */
             s->lookahead = (uint32_t)(s->strstart - max_start);
@@ -1778,7 +1778,7 @@ static block_state deflate_rle(s, flush)
                          prev == *++scan && prev == *++scan &&
                          prev == *++scan && prev == *++scan &&
                          scan < strend);
-                s->match_length = MAX_MATCH - (int)(strend - scan);
+                s->match_length = MAX_MATCH - (uInt)(strend - scan);
                 if (s->match_length > s->lookahead)
                     s->match_length = s->lookahead;
             }
