@@ -43,13 +43,16 @@
 #define Buf_size 64
 /* size of bit buffer in bi_buf */
 
-#define INIT_STATE    42
-#define EXTRA_STATE   69
-#define NAME_STATE    73
-#define COMMENT_STATE 91
-#define HCRC_STATE   103
-#define BUSY_STATE   113
-#define FINISH_STATE 666
+#define INIT_STATE    42    /* zlib header -> BUSY_STATE */
+#ifdef GZIP
+#  define GZIP_STATE  57    /* gzip header -> BUSY_STATE | EXTRA_STATE */
+#endif
+#define EXTRA_STATE   69    /* gzip extra block -> NAME_STATE */
+#define NAME_STATE    73    /* gzip file name -> COMMENT_STATE */
+#define COMMENT_STATE 91    /* gzip comment -> HCRC_STATE */
+#define HCRC_STATE   103    /* gzip header CRC -> BUSY_STATE */
+#define BUSY_STATE   113    /* deflate -> FINISH_STATE */
+#define FINISH_STATE 666    /* stream complete */
 /* Stream status */
 
 
@@ -91,10 +94,10 @@ typedef struct internal_state {
     uint8_t    *pending_buf;      /* output still pending */
     uint64_t   pending_buf_size;  /* size of pending_buf */
     uint8_t    *pending_out;      /* next pending byte to output to the stream */
-    uint32_t   pending;           /* nb of bytes in the pending buffer */
+    uint64_t   pending;           /* nb of bytes in the pending buffer */
     int        wrap;              /* bit 0 true for zlib, bit 1 true for gzip */
     gz_headerp gzhead;            /* gzip header information to write */
-    uint32_t   gzindex;           /* where in extra, name, or comment */
+    uint64_t   gzindex;           /* where in extra, name, or comment */
     uint8_t    method;            /* can only be DEFLATED */
     int        last_flush;        /* value of flush param for previous deflate call */
 
@@ -113,7 +116,7 @@ typedef struct internal_state {
      * To do: use the user input buffer as sliding window.
      */
 
-    uint32_t window_size;
+    uint64_t window_size;
     /* Actual size of window: 2*wSize, except when the user input buffer
      * is directly used as sliding window.
      */

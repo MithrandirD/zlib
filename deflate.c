@@ -308,6 +308,7 @@ static int deflateStateCheck (strm)
         return 1;
     s = strm->state;
     if (s == Z_NULL || s->strm != strm || (s->status != INIT_STATE &&
+                                           s->status != GZIP_STATE &&
                                            s->status != EXTRA_STATE &&
                                            s->status != NAME_STATE &&
                                            s->status != COMMENT_STATE &&
@@ -401,7 +402,9 @@ int ZEXPORT deflateResetKeep (strm)
     if (s->wrap < 0) {
         s->wrap = -s->wrap; /* was made negative by deflate(..., Z_FINISH); */
     }
-    s->status = s->wrap ? INIT_STATE : BUSY_STATE;
+    s->status = 
+        s->wrap == 2 ? GZIP_STATE :
+        s->wrap ? INIT_STATE : BUSY_STATE;
     strm->adler =
         s->wrap == 2 ? crc32(0L, Z_NULL, 0) :
         adler32(0L, Z_NULL, 0);
@@ -553,7 +556,6 @@ uint64_t ZEXPORT deflateBound(strm, sourceLen)
 {
     deflate_state *s;
     uint64_t complen, wraplen;
-    uint8_t  *str;
 
     /* conservative upper bound for compressed data */
     complen = sourceLen +
@@ -575,6 +577,7 @@ uint64_t ZEXPORT deflateBound(strm, sourceLen)
     case 2:                                 /* gzip wrapper */
         wraplen = 18;
         if (s->gzhead != Z_NULL) {          /* user-supplied gzip header */
+            uint8_t  *str;
             if (s->gzhead->extra != Z_NULL)
                 wraplen += 2 + s->gzhead->extra_len;
             str = s->gzhead->name;
@@ -638,12 +641,22 @@ static void flush_pending(strm)
     strm->next_out  += len;
     s->pending_out  += len;
     strm->total_out += len;
-    strm->avail_out  -= len;
-    s->pending -= len;
+    strm->avail_out -= len;
+    s->pending      -= len;
     if (s->pending == 0) {
         s->pending_out = s->pending_buf;
     }
 }
+
+/* ===========================================================================
+ * Update the header CRC with the bytes s->pending_buf[beg..s->pending - 1].
+ */
+#define HCRC_UPDATE(beg) \
+    do { \
+        if (s->gzhead->hcrc && s->pending > (beg)) \
+            strm->adler = crc32(strm->adler, s->pending_buf + (beg), \
+                                s->pending - (beg)); \
+    } while (0)
 
 /* ========================================================================= */
 int ZEXPORT deflate (strm, flush)
@@ -665,185 +678,8 @@ int ZEXPORT deflate (strm, flush)
     }
     if (strm->avail_out == 0) ERR_RETURN(strm, Z_BUF_ERROR);
 
-    s->strm = strm; /* just in case */
     old_flush = s->last_flush;
     s->last_flush = flush;
-
-    /* Write the header */
-    if (s->status == INIT_STATE) {
-        if (s->wrap == 2) {
-            strm->adler = crc32(0L, Z_NULL, 0);
-            put_byte(s, 31);
-            put_byte(s, 139);
-            put_byte(s, 8);
-            if (s->gzhead == Z_NULL) {
-                put_byte(s, 0);
-                put_byte(s, 0);
-                put_byte(s, 0);
-                put_byte(s, 0);
-                put_byte(s, 0);
-                put_byte(s, s->level == 9 ? 2 :
-                            (s->strategy >= Z_HUFFMAN_ONLY || s->level < 2 ?
-                             4 : 0));
-                put_byte(s, OS_CODE);
-                s->status = BUSY_STATE;
-            }
-            else {
-                put_byte(s, (s->gzhead->text ? 1 : 0) +
-                            (s->gzhead->hcrc ? 2 : 0) +
-                            (s->gzhead->extra == Z_NULL ? 0 : 4) +
-                            (s->gzhead->name == Z_NULL ? 0 : 8) +
-                            (s->gzhead->comment == Z_NULL ? 0 : 16)
-                        );
-                put_byte(s, (uint8_t)(s->gzhead->time & 0xff));
-                put_byte(s, (uint8_t)((s->gzhead->time >> 8) & 0xff));
-                put_byte(s, (uint8_t)((s->gzhead->time >> 16) & 0xff));
-                put_byte(s, (uint8_t)((s->gzhead->time >> 24) & 0xff));
-                put_byte(s, s->level == 9 ? 2 :
-                            (s->strategy >= Z_HUFFMAN_ONLY || s->level < 2 ?
-                             4 : 0));
-                put_byte(s, s->gzhead->os & 0xff);
-                if (s->gzhead->extra != Z_NULL) {
-                    put_byte(s, s->gzhead->extra_len & 0xff);
-                    put_byte(s, (s->gzhead->extra_len >> 8) & 0xff);
-                }
-                if (s->gzhead->hcrc)
-                    strm->adler = crc32(strm->adler, s->pending_buf,
-                                        s->pending);
-                s->gzindex = 0;
-                s->status = EXTRA_STATE;
-            }
-        }
-        else
-        {
-            uint32_t header = (Z_DEFLATED + ((s->w_bits-8)<<4)) << 8;
-            uint32_t level_flags;
-
-            if (s->strategy >= Z_HUFFMAN_ONLY || s->level < 2)
-                level_flags = 0;
-            else if (s->level < 6)
-                level_flags = 1;
-            else if (s->level == 6)
-                level_flags = 2;
-            else
-                level_flags = 3;
-            header |= (level_flags << 6);
-            if (s->strstart != 0) header |= PRESET_DICT;
-            header += 31 - (header % 31);
-
-            s->status = BUSY_STATE;
-            putShortMSB(s, header);
-
-            /* Save the adler32 of the preset dictionary: */
-            if (s->strstart != 0) {
-                putShortMSB(s, (uint32_t)(strm->adler >> 16));
-                putShortMSB(s, (uint32_t)(strm->adler & 0xffff));
-            }
-            strm->adler = adler32(0L, Z_NULL, 0);
-        }
-    }
-    if (s->status == EXTRA_STATE) {
-        if (s->gzhead->extra != Z_NULL) {
-            uint32_t beg = s->pending;  /* start of bytes to update crc */
-
-            while (s->gzindex < (s->gzhead->extra_len & 0xffff)) {
-                if (s->pending == s->pending_buf_size) {
-                    if (s->gzhead->hcrc && s->pending > beg)
-                        strm->adler = crc32(strm->adler, s->pending_buf + beg,
-                                            s->pending - beg);
-                    flush_pending(strm);
-                    beg = s->pending;
-                    if (s->pending == s->pending_buf_size)
-                        break;
-                }
-                put_byte(s, s->gzhead->extra[s->gzindex]);
-                s->gzindex++;
-            }
-            if (s->gzhead->hcrc && s->pending > beg)
-                strm->adler = crc32(strm->adler, s->pending_buf + beg,
-                                    s->pending - beg);
-            if (s->gzindex == s->gzhead->extra_len) {
-                s->gzindex = 0;
-                s->status = NAME_STATE;
-            }
-        }
-        else
-            s->status = NAME_STATE;
-    }
-    if (s->status == NAME_STATE) {
-        if (s->gzhead->name != Z_NULL) {
-            uint32_t beg = s->pending;  /* start of bytes to update crc */
-            int val;
-
-            do {
-                if (s->pending == s->pending_buf_size) {
-                    if (s->gzhead->hcrc && s->pending > beg)
-                        strm->adler = crc32(strm->adler, s->pending_buf + beg,
-                                            s->pending - beg);
-                    flush_pending(strm);
-                    beg = s->pending;
-                    if (s->pending == s->pending_buf_size) {
-                        val = 1;
-                        break;
-                    }
-                }
-                val = s->gzhead->name[s->gzindex++];
-                put_byte(s, val);
-            } while (val != 0);
-            if (s->gzhead->hcrc && s->pending > beg)
-                strm->adler = crc32(strm->adler, s->pending_buf + beg,
-                                    s->pending - beg);
-            if (val == 0) {
-                s->gzindex = 0;
-                s->status = COMMENT_STATE;
-            }
-        }
-        else
-            s->status = COMMENT_STATE;
-    }
-    if (s->status == COMMENT_STATE) {
-        if (s->gzhead->comment != Z_NULL) {
-            uint32_t beg = s->pending;  /* start of bytes to update crc */
-            int val;
-
-            do {
-                if (s->pending == s->pending_buf_size) {
-                    if (s->gzhead->hcrc && s->pending > beg)
-                        strm->adler = crc32(strm->adler, s->pending_buf + beg,
-                                            s->pending - beg);
-                    flush_pending(strm);
-                    beg = s->pending;
-                    if (s->pending == s->pending_buf_size) {
-                        val = 1;
-                        break;
-                    }
-                }
-                val = s->gzhead->comment[s->gzindex++];
-                put_byte(s, val);
-            } while (val != 0);
-            if (s->gzhead->hcrc && s->pending > beg)
-                strm->adler = crc32(strm->adler, s->pending_buf + beg,
-                                    s->pending - beg);
-            if (val == 0)
-                s->status = HCRC_STATE;
-        }
-        else
-            s->status = HCRC_STATE;
-    }
-    if (s->status == HCRC_STATE) {
-        if (s->gzhead->hcrc) {
-            if (s->pending + 2 > s->pending_buf_size)
-                flush_pending(strm);
-            if (s->pending + 2 <= s->pending_buf_size) {
-                put_byte(s, (uint8_t)(strm->adler & 0xff));
-                put_byte(s, (uint8_t)((strm->adler >> 8) & 0xff));
-                strm->adler = crc32(0L, Z_NULL, 0);
-                s->status = BUSY_STATE;
-            }
-        }
-        else
-            s->status = BUSY_STATE;
-    }
 
     /* Flush as much pending output as possible */
     if (s->pending != 0) {
@@ -873,6 +709,186 @@ int ZEXPORT deflate (strm, flush)
         ERR_RETURN(strm, Z_BUF_ERROR);
     }
 
+    /* Write the header */
+    if (s->status == INIT_STATE) {
+        /* zlib header */
+        uInt header = (Z_DEFLATED + ((s->w_bits-8)<<4)) << 8;
+        uInt level_flags;
+
+        if (s->strategy >= Z_HUFFMAN_ONLY || s->level < 2)
+            level_flags = 0;
+        else if (s->level < 6)
+            level_flags = 1;
+        else if (s->level == 6)
+            level_flags = 2;
+        else
+            level_flags = 3;
+        header |= (level_flags << 6);
+        if (s->strstart != 0) header |= PRESET_DICT;
+        header += 31 - (header % 31);
+
+        putShortMSB(s, header);
+
+        /* Save the adler32 of the preset dictionary: */
+        if (s->strstart != 0) {
+            putShortMSB(s, (uInt)(strm->adler >> 16));
+            putShortMSB(s, (uInt)(strm->adler & 0xffff));
+        }
+        strm->adler = adler32(0L, Z_NULL, 0);
+        s->status = BUSY_STATE;
+
+        /* Compression must start with an empty pending buffer */
+        flush_pending(strm);
+        if (s->pending != 0) {
+            s->last_flush = -1;
+            return Z_OK;
+        }
+    }
+#ifdef GZIP
+    if (s->status == GZIP_STATE) {
+        /* gzip header */
+        strm->adler = crc32(0L, Z_NULL, 0);
+        put_byte(s, 31);
+        put_byte(s, 139);
+        put_byte(s, 8);
+        if (s->gzhead == Z_NULL) {
+            put_byte(s, 0);
+            put_byte(s, 0);
+            put_byte(s, 0);
+            put_byte(s, 0);
+            put_byte(s, 0);
+            put_byte(s, s->level == 9 ? 2 :
+                     (s->strategy >= Z_HUFFMAN_ONLY || s->level < 2 ?
+                      4 : 0));
+            put_byte(s, OS_CODE);
+            s->status = BUSY_STATE;
+
+            /* Compression must start with an empty pending buffer */
+            flush_pending(strm);
+            if (s->pending != 0) {
+                s->last_flush = -1;
+                return Z_OK;
+            }
+        }
+        else {
+            put_byte(s, (s->gzhead->text ? 1 : 0) +
+                     (s->gzhead->hcrc ? 2 : 0) +
+                     (s->gzhead->extra == Z_NULL ? 0 : 4) +
+                     (s->gzhead->name == Z_NULL ? 0 : 8) +
+                     (s->gzhead->comment == Z_NULL ? 0 : 16)
+                     );
+            put_byte(s, (uint8_t)(s->gzhead->time & 0xff));
+            put_byte(s, (uint8_t)((s->gzhead->time >> 8) & 0xff));
+            put_byte(s, (uint8_t)((s->gzhead->time >> 16) & 0xff));
+            put_byte(s, (uint8_t)((s->gzhead->time >> 24) & 0xff));
+            put_byte(s, s->level == 9 ? 2 :
+                     (s->strategy >= Z_HUFFMAN_ONLY || s->level < 2 ?
+                      4 : 0));
+            put_byte(s, s->gzhead->os & 0xff);
+            if (s->gzhead->extra != Z_NULL) {
+                put_byte(s, s->gzhead->extra_len & 0xff);
+                put_byte(s, (s->gzhead->extra_len >> 8) & 0xff);
+            }
+            if (s->gzhead->hcrc)
+                strm->adler = crc32(strm->adler, s->pending_buf,
+                                    s->pending);
+            s->gzindex = 0;
+            s->status = EXTRA_STATE;
+        }
+    }
+    if (s->status == EXTRA_STATE) {
+        if (s->gzhead->extra != Z_NULL) {
+            ulg beg = s->pending;   /* start of bytes to update crc */
+            uInt left = (s->gzhead->extra_len & 0xffff) - s->gzindex;
+            while (s->pending + left > s->pending_buf_size) {
+                uInt copy = s->pending_buf_size - s->pending;
+                zmemcpy(s->pending_buf + s->pending,
+                        s->gzhead->extra + s->gzindex, copy);
+                s->pending = s->pending_buf_size;
+                HCRC_UPDATE(beg);
+                s->gzindex += copy;
+                flush_pending(strm);
+                if (s->pending != 0) {
+                    s->last_flush = -1;
+                    return Z_OK;
+                }
+                beg = 0;
+                left -= copy;
+            }
+            zmemcpy(s->pending_buf + s->pending,
+                    s->gzhead->extra + s->gzindex, left);
+            s->pending += left;
+            HCRC_UPDATE(beg);
+            s->gzindex = 0;
+        }
+        s->status = NAME_STATE;
+    }
+    if (s->status == NAME_STATE) {
+        if (s->gzhead->name != Z_NULL) {
+            ulg beg = s->pending;   /* start of bytes to update crc */
+            int val;
+            do {
+                if (s->pending == s->pending_buf_size) {
+                    HCRC_UPDATE(beg);
+                    flush_pending(strm);
+                    if (s->pending != 0) {
+                        s->last_flush = -1;
+                        return Z_OK;
+                    }
+                    beg = 0;
+                }
+                val = s->gzhead->name[s->gzindex++];
+                put_byte(s, val);
+            } while (val != 0);
+            HCRC_UPDATE(beg);
+            s->gzindex = 0;
+        }
+        s->status = COMMENT_STATE;
+    }
+    if (s->status == COMMENT_STATE) {
+        if (s->gzhead->comment != Z_NULL) {
+            ulg beg = s->pending;   /* start of bytes to update crc */
+            int val;
+            do {
+                if (s->pending == s->pending_buf_size) {
+                    HCRC_UPDATE(beg);
+                    flush_pending(strm);
+                    if (s->pending != 0) {
+                        s->last_flush = -1;
+                        return Z_OK;
+                    }
+                    beg = 0;
+                }
+                val = s->gzhead->comment[s->gzindex++];
+                put_byte(s, val);
+            } while (val != 0);
+            HCRC_UPDATE(beg);
+        }
+        s->status = HCRC_STATE;
+    }
+    if (s->status == HCRC_STATE) {
+        if (s->gzhead->hcrc) {
+            if (s->pending + 2 > s->pending_buf_size) {
+                flush_pending(strm);
+                if (s->pending != 0) {
+                    s->last_flush = -1;
+                    return Z_OK;
+                }
+            }
+            put_byte(s, (uint8_t)(strm->adler & 0xff));
+            put_byte(s, (uint8_t)((strm->adler >> 8) & 0xff));
+            strm->adler = crc32(0L, Z_NULL, 0);
+        }
+        s->status = BUSY_STATE;
+
+        /* Compression must start with an empty pending buffer */
+        flush_pending(strm);
+        if (s->pending != 0) {
+            s->last_flush = -1;
+            return Z_OK;
+        }
+    }
+#endif
     /* Start a new block or continue the current one.
      */
     if (strm->avail_in != 0 || s->lookahead != 0 ||
