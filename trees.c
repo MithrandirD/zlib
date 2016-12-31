@@ -116,7 +116,7 @@ static int base_dist[D_CODES];
 
 struct static_tree_desc_s {
     const ct_data *static_tree;  /* static tree or NULL */
-    const int *extra_bits;      /* extra bits for each code or NULL */
+    const int *extra_bits;       /* extra bits for each code or NULL */
     int     extra_base;          /* base index for extra_bits */
     int     elems;               /* max number of elements in the tree */
     int     max_length;          /* max bit length for the codes */
@@ -456,14 +456,14 @@ static void gen_bitlen(s, desc)
     ct_data *tree        = desc->dyn_tree;
     int max_code         = desc->max_code;
     const ct_data *stree = desc->stat_desc->static_tree;
-    const intf *extra    = desc->stat_desc->extra_bits;
+    const int *extra     = desc->stat_desc->extra_bits;
     int base             = desc->stat_desc->extra_base;
     int max_length       = desc->stat_desc->max_length;
     int h;              /* heap index */
     int n, m;           /* iterate over the tree elements */
     int bits;           /* bit length */
     int xbits;          /* extra bits */
-    uint16_t f;              /* frequency */
+    uint16_t f;         /* frequency */
     int overflow = 0;   /* number of elements with bit length too large */
 
     for (bits = 0; bits <= MAX_BITS; bits++) s->bl_count[bits] = 0;
@@ -835,7 +835,7 @@ void ZLIB_INTERNAL _tr_stored_block(s, buf, stored_len, last)
     bi_windup(s);        /* align on byte boundary */
     put_short(s, (uint64_t)stored_len);
     put_short(s, (uint64_t)~stored_len);
-    zmemcpy(s->pending_buf + s->pending, buf, stored_len);
+    zmemcpy(s->pending_buf + s->pending, (Bytef *)buf, stored_len);
     s->pending += stored_len;
 #ifdef ZLIB_DEBUG
     s->compressed_len = (s->compressed_len + 3 + 7) & (uint64_t)~7L;
