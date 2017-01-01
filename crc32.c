@@ -36,9 +36,9 @@
 #endif
 #ifdef BYFOUR
    local unsigned long crc32_little OF((unsigned long,
-                        const unsigned char FAR *, unsigned));
+                        const unsigned char FAR *, z_size_t));
    local unsigned long crc32_big OF((unsigned long,
-                        const unsigned char FAR *, unsigned));
+                        const unsigned char FAR *, z_size_t));
 #  define TBLS 8
 #else
 #  define TBLS 1
@@ -202,7 +202,7 @@ const z_crc_t FAR * ZEXPORT get_crc_table()
 local unsigned long crc32_generic(crc, buf, len)
     unsigned long crc;
     const unsigned char FAR *buf;
-    uInt len;
+    z_size_t len;
 {
     if (buf == Z_NULL) return 0UL;
 
@@ -314,7 +314,7 @@ uLong crc32(crc, buf, len)
 local unsigned long crc32_little(crc, buf, len)
     unsigned long crc;
     const unsigned char FAR *buf;
-    unsigned len;
+    z_size_t len;
 {
     register z_crc_t c;
     register const z_crc_t FAR *buf4;
@@ -354,7 +354,7 @@ local unsigned long crc32_little(crc, buf, len)
 local unsigned long crc32_big(crc, buf, len)
     unsigned long crc;
     const unsigned char FAR *buf;
-    unsigned len;
+    z_size_t len;
 {
     register z_crc_t c;
     register const z_crc_t FAR *buf4;
