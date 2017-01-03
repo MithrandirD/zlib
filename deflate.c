@@ -86,6 +86,7 @@ static void lm_init(deflate_state *s);
 static void putShortMSB(deflate_state *s, uint32_t b);
 static void flush_pending(z_streamp strm);
 static uint32_t read_buf(z_streamp strm, uint8_t  *buf, uint32_t  size);
+static uint32_t longest_match(deflate_state *s, IPos cur_match);
 
 #ifdef ZLIB_DEBUG
 static  void check_match(deflate_state *s, IPos start, IPos match,
